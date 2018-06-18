@@ -1,0 +1,61 @@
+#!/usr/bin/env node
+
+const cheerio = require('cheerio')
+const axios = require('axios');
+const fs = require('fs');
+const Json2csvParser = require('json2csv').Parser;
+const fields = ['player', 'event', 'week', 'year', 'finish', 'points', 'weight', 'adj_points', 'rank_after'];
+const opts = { fields };
+
+
+async function getPlayerData(playerUrl) {
+    const html = await axios('http://www.owgr.com' + playerUrl.url);
+    const $playerHistory = cheerio.load(html.data);
+    const $rows = $playerHistory('#player_results tbody tr');
+
+    const results = [];
+    $rows.each((i, row) => {
+        const $row = $playerHistory(row);
+        const $columns = $row.find('td');
+        results.push({
+            player: playerUrl.player,
+            event: $row.find('.event').text(), // event
+            week: $columns.eq(2).text(), // week
+            year: $columns.eq(3).text(), // year
+            finish: $columns.eq(4).text(), // finish
+            points: $columns.eq(5).text(), // points
+            weight: $columns.eq(6).text(), // weight
+            adj_points: $columns.eq(7).text(), // adj points
+            rank_after: $columns.eq(8).text(), // rank after
+        });       
+    });
+    return results;
+}
+
+(async function() {
+    const owgrListHtml = await axios('http://www.owgr.com/ranking');
+    const $owgr = cheerio.load(owgrListHtml.data);
+
+    const $golferRow = $owgr('#ranking_table tbody tr')
+    const playerUrls = [];
+    $golferRow.each((i, row) => {
+        const $link = $owgr(row).find('.name a');
+
+        const url = $link.attr('href');
+        const player = $link.text()
+        playerUrls.push({
+            url,
+            player
+        });
+    });
+
+
+    let results = []
+    for (const playerUrl of playerUrls) {
+        results = results.concat(await getPlayerData(playerUrl));
+    }
+
+    const parser = new Json2csvParser(opts);
+    const csv = parser.parse(results);
+    fs.writeFileSync('owgr.csv', csv);
+})();
